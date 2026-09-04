@@ -7,8 +7,7 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# DiscordのWebhook URL（取得したURLに差し替えてください）
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
 
 def send_to_discord(name: str, message: str):
     if "YOUR_WEBHOOK_ID" in DISCORD_WEBHOOK_URL:
@@ -41,24 +40,6 @@ def send_to_discord(name: str, message: str):
         urllib.request.urlopen(req)
     except Exception as e:
         print(f"Discordへの送信に失敗しました: {e}")
-
-# フィードバックを受け取るエンドポイント
-@app.post("/api/feedback")
-async def submit_feedback(feedback: FeedbackCreate):
-    feedback_data = {
-        "name": feedback.name,
-        "message": feedback.message,
-        "time": time.time()
-    }
-    feedback_list.append(feedback_data)
-    
-    # コンソール表示
-    print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
-    
-    # Discordへの通知送信処理を実行
-    send_to_discord(feedback.name, feedback.message)
-    
-    return {"status": "success"}
 
 rooms_db: dict[str, dict] = {}
 room_history: dict[str, list[dict]] = {}
@@ -155,8 +136,9 @@ async def submit_feedback(feedback: FeedbackCreate):
         "time": time.time()
     }
     feedback_list.append(feedback_data)
-    # コンソール画面にも表示させる
-    print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
+
+send_to_discord(feedback.name, feedback.message)
+    
     return {"status": "success"}
 
 html_content = """
