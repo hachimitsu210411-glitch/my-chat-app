@@ -155,7 +155,7 @@ html_content = """
                 align-items: center;
                 gap: 12px;
             }
-            .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 2px 6px; margin-right: 4px; border-radius: 3px; }
+            .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 4px 8px; margin-right: 4px; border-radius: 3px; }
             .recommend-tag { background: #ffe082; font-weight: bold; }
             .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 4px; }
             
@@ -239,6 +239,10 @@ html_content = """
 
             input[type="text"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
             button { cursor: pointer; }
+            
+            /* 追加されたタグリスト用 */
+            .tag-remove { color: #d9534f; cursor: pointer; margin-left: 6px; font-weight: bold; font-size: 12px; }
+            .tag-list-container { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 15px; }
         </style>
     </head>
     <body>
@@ -272,10 +276,14 @@ html_content = """
                     <label><input type="checkbox" class="hobby-check" value="声優" /> 声優</label>
                 </div>
                 
-                <p>自由に追加する趣味・タグ（カンマ区切り）:</p>
-                <input type="text" id="customHobbyInput" placeholder="例: イラスト, 競プロ" style="width: 100%; margin-bottom: 15px;" />
+                <p>自由に追加する趣味・タグ:</p>
+                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                    <input type="text" id="customHobbyInput" placeholder="例: イラスト" style="flex: 1;" onkeydown="if(event.key==='Enter') addCustomHobby()" />
+                    <button onclick="addCustomHobby()" style="padding: 6px 12px; background: #666; color: white; border: none; border-radius: 4px;">追加</button>
+                </div>
+                <div id="customHobbyList" class="tag-list-container"></div>
                 
-                <button onclick="saveProfile()" style="padding: 10px; background: #333; color: white; border: none; border-radius: 4px;">保存してロビーへ</button>
+                <button onclick="saveProfile()" style="margin-top: 5px; padding: 10px; background: #333; color: white; border: none; border-radius: 4px;">保存してロビーへ</button>
             </div>
 
             <!-- 2. ロビー画面 -->
@@ -294,10 +302,20 @@ html_content = """
 
                 <div class="create-box">
                     <h4>新しい趣味ルームを作る</h4>
-                    <p style="margin-top: 5px;">ルーム名: <input type="text" id="newRoomNameInput" placeholder="例: 競プロ部屋" style="width: 100%;" /></p>
-                    <p style="margin-top: 5px;">アイコン: <input type="file" id="newRoomIconInput" accept="image/*" /></p>
-                    <p style="margin-top: 5px;">タグ (カンマ区切り): <input type="text" id="newRoomTagsInput" placeholder="例: 競プロ, Python" style="width: 100%;" /></p>
-                    <button onclick="createNewRoom()" style="margin-top: 10px; padding: 6px 12px; background: #333; color: white; border: none; border-radius: 4px;">ルームを作成</button>
+                    <p style="margin-top: 5px;">ルーム名:</p>
+                    <input type="text" id="newRoomNameInput" placeholder="例: 競プロ部屋" style="width: 100%; margin-bottom: 5px;" />
+                    
+                    <p style="margin-top: 5px;">アイコン:</p>
+                    <input type="file" id="newRoomIconInput" accept="image/*" style="margin-bottom: 5px;" />
+                    
+                    <p style="margin-top: 5px;">タグ追加:</p>
+                    <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                        <input type="text" id="newRoomTagInput" placeholder="例: 競プロ" style="flex: 1;" onkeydown="if(event.key==='Enter') addRoomTag()" />
+                        <button onclick="addRoomTag()" style="padding: 6px 12px; background: #666; color: white; border: none; border-radius: 4px;">追加</button>
+                    </div>
+                    <div id="newRoomTagsList" class="tag-list-container"></div>
+
+                    <button onclick="createNewRoom()" style="margin-top: 5px; padding: 6px 12px; background: #333; color: white; border: none; border-radius: 4px;">ルームを作成</button>
                 </div>
 
                 <br>
@@ -340,6 +358,11 @@ html_content = """
             var userBio = "";
             var userIconBase64 = "";
             var userHobbies = [];
+            
+            // 自由入力タグ管理用の配列
+            var customHobbiesArray = [];
+            var newRoomTagsArray = [];
+            
             var ws = null;
 
             window.onload = function() {
@@ -360,7 +383,7 @@ html_content = """
                 if (savedHobbies) {
                     userHobbies = JSON.parse(savedHobbies);
                     var checkboxes = document.querySelectorAll('.hobby-check');
-                    var customTags = [];
+                    customHobbiesArray = [];
 
                     userHobbies.forEach(function(hobby) {
                         var found = false;
@@ -370,12 +393,10 @@ html_content = """
                                 found = true;
                             }
                         });
-                        if (!found) customTags.push(hobby);
+                        // チェックボックスに無いものはカスタムタグとして追加
+                        if (!found) customHobbiesArray.push(hobby);
                     });
-
-                    if (customTags.length > 0) {
-                        document.getElementById("customHobbyInput").value = customTags.join(", ");
-                    }
+                    renderCustomHobbies();
                 }
             };
 
@@ -384,6 +405,62 @@ html_content = """
                     ws.close();
                 }
             });
+
+            // ------------------- プロフィール用のタグ追加機能 -------------------
+            function addCustomHobby() {
+                var input = document.getElementById("customHobbyInput");
+                var val = input.value.trim();
+                if (val && !customHobbiesArray.includes(val)) {
+                    customHobbiesArray.push(val);
+                    renderCustomHobbies();
+                }
+                input.value = "";
+            }
+
+            function removeCustomHobby(index) {
+                customHobbiesArray.splice(index, 1);
+                renderCustomHobbies();
+            }
+
+            function renderCustomHobbies() {
+                var list = document.getElementById("customHobbyList");
+                list.innerHTML = "";
+                customHobbiesArray.forEach(function(tag, index) {
+                    var span = document.createElement("span");
+                    span.className = "tag";
+                    span.innerHTML = "#" + tag + ' <span class="tag-remove" onclick="removeCustomHobby(' + index + ')">×</span>';
+                    list.appendChild(span);
+                });
+            }
+
+            // ------------------- ルーム作成用のタグ追加機能 -------------------
+            function addRoomTag() {
+                var input = document.getElementById("newRoomTagInput");
+                var val = input.value.trim();
+                if (val && !newRoomTagsArray.includes(val)) {
+                    newRoomTagsArray.push(val);
+                    renderRoomTags();
+                }
+                input.value = "";
+            }
+
+            function removeRoomTag(index) {
+                newRoomTagsArray.splice(index, 1);
+                renderRoomTags();
+            }
+
+            function renderRoomTags() {
+                var list = document.getElementById("newRoomTagsList");
+                list.innerHTML = "";
+                newRoomTagsArray.forEach(function(tag, index) {
+                    var span = document.createElement("span");
+                    span.className = "tag";
+                    span.innerHTML = "#" + tag + ' <span class="tag-remove" onclick="removeRoomTag(' + index + ')">×</span>';
+                    list.appendChild(span);
+                });
+            }
+
+            // ---------------------------------------------------------------
 
             function scrollToBottom() {
                 var messagesDiv = document.getElementById("messages");
@@ -443,17 +520,15 @@ html_content = """
                 localStorage.setItem("chat_user_icon", userIconBase64);
 
                 userHobbies = [];
+                // チェックボックスのタグを追加
                 document.querySelectorAll('.hobby-check:checked').forEach(function(cb) {
                     userHobbies.push(cb.value);
                 });
 
-                var customInput = document.getElementById("customHobbyInput").value.trim();
-                if (customInput) {
-                    var customTags = customInput.split(",").map(t => t.trim()).filter(t => t.length > 0);
-                    customTags.forEach(function(tag) {
-                        if (!userHobbies.includes(tag)) userHobbies.push(tag);
-                    });
-                }
+                // カスタムタグを追加
+                customHobbiesArray.forEach(function(tag) {
+                    if (!userHobbies.includes(tag)) userHobbies.push(tag);
+                });
 
                 localStorage.setItem("chat_hobbies", JSON.stringify(userHobbies));
                 document.getElementById("welcomeText").textContent = currentUser + " さんのマイロビー";
@@ -540,11 +615,9 @@ html_content = """
 
             async function createNewRoom() {
                 var nameInput = document.getElementById("newRoomNameInput");
-                var tagsInput = document.getElementById("newRoomTagsInput");
                 var iconInput = document.getElementById("newRoomIconInput");
 
                 var roomName = nameInput.value.trim();
-                var tagsRaw = tagsInput.value.trim();
 
                 if (!roomName) {
                     alert("ルーム名を入力してください");
@@ -556,7 +629,8 @@ html_content = """
                     roomIconBase64 = await fileToBase64(iconInput.files[0]);
                 }
 
-                var tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()) : [];
+                // 配列のコピーを作成
+                var tags = newRoomTagsArray.slice();
 
                 await fetch("/api/rooms", {
                     method: "POST",
@@ -564,9 +638,12 @@ html_content = """
                     body: JSON.stringify({ name: roomName, tags: tags, icon: roomIconBase64 })
                 });
 
+                // 入力状態をリセット
                 nameInput.value = "";
-                tagsInput.value = "";
                 iconInput.value = "";
+                newRoomTagsArray = [];
+                renderRoomTags();
+                
                 loadRooms();
             }
 
