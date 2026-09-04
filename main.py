@@ -35,7 +35,8 @@ class ConnectionManager:
 
     def disconnect(self, room_name: str, websocket: WebSocket):
         if room_name in self.rooms:
-            self.rooms[room_name].remove(websocket)
+            if websocket in self.rooms[room_name]:
+                self.rooms[room_name].remove(websocket)
             if not self.rooms[room_name]:
                 del self.rooms[room_name]
 
@@ -49,8 +50,16 @@ class ConnectionManager:
                 room_history[room_name].pop(0)
 
         if room_name in self.rooms:
-            for connection in self.rooms[room_name]:
-                await connection.send_text(json_data)
+            disconnected_sockets = []
+            for connection in list(self.rooms[room_name]):
+                try:
+                    await connection.send_text(json_data)
+                except Exception:
+                    disconnected_sockets.append(connection)
+            
+            # 接続が切れていたソケットを安全に削除
+            for dead_socket in disconnected_sockets:
+                self.disconnect(room_name, dead_socket)
 
 manager = ConnectionManager()
 
@@ -78,125 +87,252 @@ async def create_room(room: RoomCreate):
 
 html_content = """
 <!DOCTYPE html>
-<html>
+<html lang="ja">
     <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>趣味マッチングチャット</title>
         <style>
-            body { font-family: sans-serif; margin: 0; padding: 0; background-color: #f9f9f9; }
-            .navbar { background: #333; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
-            .home-btn { background: #4CAF50; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-            .screen { margin: 20px; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background-color: #eef2f5;
+                display: flex;
+                justify-content: center;
+                height: 100dvh;
+                overflow: hidden;
+            }
+
+            /* 全体コンテナ（PCでは幅600pxに制限、スマホでは全画面） */
+            .app-container {
+                width: 100%;
+                max-width: 600px;
+                height: 100dvh;
+                display: flex;
+                flex-direction: column;
+                background-color: #ffffff;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                position: relative;
+            }
+
+            /* ナビバー */
+            .navbar {
+                background: #333;
+                color: white;
+                padding: 10px 15px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+            }
+            .home-btn {
+                background: #4CAF50;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+            }
+
+            /* 各画面共通 */
+            .screen {
+                flex: 1;
+                overflow-y: auto;
+                padding: 15px;
+                display: flex;
+                flex-direction: column;
+            }
             .hidden { display: none !important; }
-            .room-card { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 8px; width: 340px; background: white; display: flex; align-items: center; gap: 12px; }
+
+            /* カード・要素スタイル */
+            .room-card {
+                margin: 8px 0;
+                padding: 10px;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                background: white;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
             .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 2px 6px; margin-right: 4px; border-radius: 3px; }
             .recommend-tag { background: #ffe082; font-weight: bold; }
-            .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; width: 340px; background: white; border-radius: 8px; }
+            .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 8px; }
             
-            /* アイコン・画像用スタイル */
-            .icon-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #ddd; cursor: pointer; }
-            .room-icon-img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: #eee; }
+            .icon-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #ddd; cursor: pointer; flex-shrink: 0; }
+            .room-icon-img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: #eee; flex-shrink: 0; }
             .preview-img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; display: block; margin-top: 5px; }
 
-            /* チャットUI */
-            #messages { list-style: none; padding: 0; }
-            .chat-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+            /* チャット専用UI (画面最下部固定レイアウト) */
+            #chatScreen {
+                padding: 0;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+            .chat-header {
+                padding: 10px 15px;
+                background: #ffffff;
+                border-bottom: 1px solid #eee;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-shrink: 0;
+            }
+            .chat-header h2 { font-size: 16px; margin: 0; }
+            .exit-btn { background: #ff4d4d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+
+            .chat-messages {
+                flex: 1;
+                overflow-y: auto;
+                padding: 15px;
+                background-color: #7494c0;
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .chat-item { display: flex; align-items: flex-start; gap: 10px; }
             .chat-content { display: flex; flex-direction: column; }
-            .chat-name { font-size: 12px; color: #666; margin-bottom: 2px; cursor: pointer; font-weight: bold; }
-            .chat-text { background: white; padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; max-width: 350px; word-break: break-all; }
-            .chat-send-img { max-width: 250px; max-height: 250px; border-radius: 8px; border: 1px solid #ddd; margin-top: 4px; }
-            .system-msg { color: #888; font-style: italic; font-size: 13px; margin: 8px 0; }
-            
-            /* プロフィールモーダル */
+            .chat-name { font-size: 12px; color: #ffffff; margin-bottom: 2px; cursor: pointer; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+            .chat-text { background: white; padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; max-width: 280px; word-break: break-all; font-size: 14px; }
+            .chat-send-img { max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid #ddd; margin-top: 4px; }
+            .system-msg { color: #ffffff; text-align: center; font-size: 12px; margin: 8px 0; background: rgba(0, 0, 0, 0.2); padding: 4px 12px; border-radius: 12px; align-self: center; }
+
+            /* 下部固定入力バー */
+            .chat-input-bar {
+                padding: 10px;
+                background: #ffffff;
+                border-top: 1px solid #ddd;
+                display: flex;
+                gap: 6px;
+                align-items: center;
+                flex-shrink: 0;
+            }
+            .chat-input-bar input[type="text"] {
+                flex: 1;
+                padding: 10px 14px;
+                border: 1px solid #ccc;
+                border-radius: 20px;
+                outline: none;
+                font-size: 14px;
+            }
+            .chat-input-bar button {
+                padding: 8px 14px;
+                background-color: #06c755;
+                color: white;
+                border: none;
+                border-radius: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+                white-space: nowrap;
+            }
+            .btn-img-select { background-color: #666 !important; }
+
+            /* モーダル */
             .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
             .modal-content { background: white; padding: 20px; border-radius: 10px; width: 280px; text-align: center; position: relative; }
             .modal-avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; margin-bottom: 10px; }
             .modal-bio { background: #f0f0f0; padding: 8px; border-radius: 6px; font-size: 13px; margin: 10px 0; color: #444; }
 
+            input[type="text"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
             button { cursor: pointer; }
         </style>
     </head>
     <body>
 
-        <div class="navbar">
-            <span>学校趣味チャット</span>
-            <button class="home-btn" onclick="goHome()">🏠 ホーム</button>
-        </div>
-
-        <!-- 1. プロフィール設定画面 -->
-        <div id="profileScreen" class="screen">
-            <h1>プロフィール登録</h1>
-            <p>名前: <input type="text" id="usernameInput" placeholder="例: たろう" /></p>
-            
-            <p>一言コメント（プロフィールに表示）:</p>
-            <input type="text" id="userBioInput" placeholder="例: よろしくお願いします！" style="width: 280px;" />
-
-            <p>アイコン画像を選択:</p>
-            <input type="file" id="userIconInput" accept="image/*" onchange="previewUserIcon(event)" />
-            <img id="userIconPreview" class="preview-img hidden" />
-
-            <p>定番ジャンル（選択）:</p>
-            <label><input type="checkbox" class="hobby-check" value="アニメ" /> アニメ</label>
-            <label><input type="checkbox" class="hobby-check" value="ボカロ" /> ボカロ</label>
-            <label><input type="checkbox" class="hobby-check" value="軽音" /> 軽音</label>
-            <label><input type="checkbox" class="hobby-check" value="ゲーム" /> ゲーム</label>
-            <label><input type="checkbox" class="hobby-check" value="声優" /> 声優</label>
-            
-            <p>自由に追加する趣味・タグ（カンマ区切り）:</p>
-            <input type="text" id="customHobbyInput" placeholder="例: イラスト, 競プロ" style="width: 280px;" />
-            <br><br>
-            <button onclick="saveProfile()">保存してロビーへ</button>
-        </div>
-
-        <!-- 2. ロビー画面 -->
-        <div id="lobbyScreen" class="screen hidden">
-            <h1 id="welcomeText">ようこそ！</h1>
-            
-            <div style="color: #d97706;">
-                <h3>★ あなたにおすすめのルーム:</h3>
-                <div id="recommendedRoomList">該当するルームがありません</div>
+        <div class="app-container">
+            <div class="navbar">
+                <span>学校趣味チャット</span>
+                <button class="home-btn" onclick="goHome()">🏠 ホーム</button>
             </div>
 
-            <hr>
+            <!-- 1. プロフィール設定画面 -->
+            <div id="profileScreen" class="screen">
+                <h2>プロフィール登録</h2>
+                <br>
+                <p>名前:</p>
+                <input type="text" id="usernameInput" placeholder="例: たろう" style="width: 100%; margin-bottom: 10px;" />
+                
+                <p>一言コメント:</p>
+                <input type="text" id="userBioInput" placeholder="例: よろしくお願いします！" style="width: 100%; margin-bottom: 10px;" />
 
-            <h3>すべてのトークルーム一覧:</h3>
-            <div id="allRoomList">まだ部屋がありません。</div>
+                <p>アイコン画像を選択:</p>
+                <input type="file" id="userIconInput" accept="image/*" onchange="previewUserIcon(event)" style="margin-bottom: 10px;" />
+                <img id="userIconPreview" class="preview-img hidden" />
 
-            <div class="create-box">
-                <h4>新しい趣味ルームを作る</h4>
-                <p>ルーム名: <input type="text" id="newRoomNameInput" placeholder="例: 競プロ部屋" /></p>
-                <p>ルームアイコン: <input type="file" id="newRoomIconInput" accept="image/*" /></p>
-                <p>タグ (カンマ区切り): <input type="text" id="newRoomTagsInput" placeholder="例: 競プロ, Python" /></p>
-                <button onclick="createNewRoom()">ルームを作成</button>
+                <p style="margin-top: 10px;">定番ジャンル（選択）:</p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin: 5px 0 10px 0;">
+                    <label><input type="checkbox" class="hobby-check" value="アニメ" /> アニメ</label>
+                    <label><input type="checkbox" class="hobby-check" value="ボカロ" /> ボカロ</label>
+                    <label><input type="checkbox" class="hobby-check" value="軽音" /> 軽音</label>
+                    <label><input type="checkbox" class="hobby-check" value="ゲーム" /> ゲーム</label>
+                    <label><input type="checkbox" class="hobby-check" value="声優" /> 声優</label>
+                </div>
+                
+                <p>自由に追加する趣味・タグ（カンマ区切り）:</p>
+                <input type="text" id="customHobbyInput" placeholder="例: イラスト, 競プロ" style="width: 100%; margin-bottom: 15px;" />
+                
+                <button onclick="saveProfile()" style="padding: 10px; background: #06c755; color: white; border: none; border-radius: 6px; font-weight: bold;">保存してロビーへ</button>
             </div>
 
-            <br>
-            <button onclick="backToProfile()">プロフィール変更</button>
-        </div>
+            <!-- 2. ロビー画面 -->
+            <div id="lobbyScreen" class="screen hidden">
+                <h2 id="welcomeText">ようこそ！</h2>
+                
+                <div style="color: #d97706; margin-top: 10px;">
+                    <h3>★ あなたにおすすめのルーム:</h3>
+                    <div id="recommendedRoomList">該当するルームがありません</div>
+                </div>
 
-        <!-- 3. チャット画面 -->
-        <div id="chatScreen" class="screen hidden">
-            <h1 id="currentRoomTitle">チャットルーム</h1>
-            
-            <div style="margin-bottom: 10px; display: flex; gap: 5px;">
-                <input type="text" id="messageText" placeholder="メッセージを入力..." style="flex: 1;" />
-                <button onclick="sendMessage()">送信</button>
-                <button onclick="document.getElementById('chatImageInput').click()">📷 画像</button>
-                <input type="file" id="chatImageInput" accept="image/*" class="hidden" onchange="sendImageMessage(event)" />
+                <hr style="margin: 15px 0;">
+
+                <h3>すべてのトークルーム一覧:</h3>
+                <div id="allRoomList">まだ部屋がありません。</div>
+
+                <div class="create-box">
+                    <h4>新しい趣味ルームを作る</h4>
+                    <p style="margin-top: 5px;">ルーム名: <input type="text" id="newRoomNameInput" placeholder="例: 競プロ部屋" style="width: 100%;" /></p>
+                    <p style="margin-top: 5px;">アイコン: <input type="file" id="newRoomIconInput" accept="image/*" /></p>
+                    <p style="margin-top: 5px;">タグ (カンマ区切り): <input type="text" id="newRoomTagsInput" placeholder="例: 競プロ, Python" style="width: 100%;" /></p>
+                    <button onclick="createNewRoom()" style="margin-top: 10px; padding: 6px 12px; background: #333; color: white; border: none; border-radius: 4px;">ルームを作成</button>
+                </div>
+
+                <br>
+                <button onclick="backToProfile()" style="padding: 8px; border: 1px solid #ccc; background: #fff; border-radius: 4px;">プロフィール変更</button>
             </div>
-            
-            <button onclick="goHome()">退室してホームへ戻る</button>
 
-            <ul id="messages"></ul>
-        </div>
+            <!-- 3. チャット画面（LINE風レイアウト） -->
+            <div id="chatScreen" class="screen hidden">
+                <div class="chat-header">
+                    <h2 id="currentRoomTitle">チャットルーム</h2>
+                    <button class="exit-btn" onclick="goHome()">退室</button>
+                </div>
 
-        <!-- 4. 相手プロフィール確認用モーダル -->
-        <div id="profileModal" class="modal-overlay hidden">
-            <div class="modal-content">
-                <img id="modalAvatar" class="modal-avatar" src="" />
-                <h3 id="modalName" style="margin: 5px 0;"></h3>
-                <div id="modalBio" class="modal-bio"></div>
-                <div id="modalTags" style="margin-bottom: 15px;"></div>
-                <button onclick="closeProfileModal()">閉じる</button>
+                <!-- メッセージ表示領域（自動スクロール） -->
+                <ul id="messages" class="chat-messages"></ul>
+
+                <!-- 画面最下部に固定される入力バー -->
+                <div class="chat-input-bar">
+                    <button class="btn-img-select" onclick="document.getElementById('chatImageInput').click()">📷</button>
+                    <input type="file" id="chatImageInput" accept="image/*" class="hidden" onchange="sendImageMessage(event)" />
+                    <input type="text" id="messageText" placeholder="メッセージを入力..." autocomplete="off" onkeydown="handleKeyDown(event)" />
+                    <button onclick="sendMessage()">送信</button>
+                </div>
+            </div>
+
+            <!-- 4. 相手プロフィール確認用モーダル -->
+            <div id="profileModal" class="modal-overlay hidden">
+                <div class="modal-content">
+                    <img id="modalAvatar" class="modal-avatar" src="" />
+                    <h3 id="modalName" style="margin: 5px 0;"></h3>
+                    <div id="modalBio" class="modal-bio"></div>
+                    <div id="modalTags" style="margin-bottom: 15px;"></div>
+                    <button onclick="closeProfileModal()" style="padding: 6px 16px;">閉じる</button>
+                </div>
             </div>
         </div>
 
@@ -243,6 +379,24 @@ html_content = """
                     }
                 }
             };
+
+            // ページを閉じる時にソケットを切断
+            window.addEventListener("beforeunload", function() {
+                if (ws) {
+                    ws.close();
+                }
+            });
+
+            function scrollToBottom() {
+                var messagesDiv = document.getElementById("messages");
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+
+            function handleKeyDown(event) {
+                if (event.key === "Enter" && !event.isComposing) {
+                    sendMessage();
+                }
+            }
 
             function fileToBase64(file) {
                 return new Promise(function(resolve, reject) {
@@ -375,6 +529,11 @@ html_content = """
 
                 var enterBtn = document.createElement("button");
                 enterBtn.textContent = "入室";
+                enterBtn.style.padding = "6px 12px";
+                enterBtn.style.background = "#06c755";
+                enterBtn.style.color = "white";
+                enterBtn.style.border = "none";
+                enterBtn.style.borderRadius = "4px";
                 enterBtn.onclick = function() { enterRoom(room.name); };
                 div.appendChild(enterBtn);
 
@@ -414,7 +573,7 @@ html_content = """
             }
 
             function enterRoom(roomName) {
-                document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」の部屋";
+                document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」";
                 document.getElementById("messages").innerHTML = "";
 
                 var protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
@@ -440,7 +599,6 @@ html_content = """
                     var li = document.createElement("li");
                     li.className = "chat-item";
 
-                    // アイコンと名前にクリックイベントを付与（プロフィールモーダル表示）
                     var img = document.createElement("img");
                     img.className = "icon-avatar";
                     img.src = data.icon || "https://via.placeholder.com/40?text=User";
@@ -460,6 +618,7 @@ html_content = """
                         var chatImg = document.createElement("img");
                         chatImg.className = "chat-send-img";
                         chatImg.src = data.message;
+                        chatImg.onload = scrollToBottom;
                         contentDiv.appendChild(chatImg);
                     } else {
                         var textDiv = document.createElement("div");
@@ -472,9 +631,9 @@ html_content = """
                     li.appendChild(contentDiv);
                     messages.appendChild(li);
                 }
+                scrollToBottom();
             }
 
-            // テキストメッセージの送信
             function sendMessage() {
                 var input = document.getElementById("messageText");
                 if (input.value.trim() !== "" && ws) {
@@ -492,7 +651,6 @@ html_content = """
                 }
             }
 
-            // 画像メッセージの送信
             async function sendImageMessage(event) {
                 var file = event.target.files[0];
                 if (file && ws) {
@@ -507,11 +665,10 @@ html_content = """
                         message: imgBase64
                     };
                     ws.send(JSON.stringify(payload));
-                    event.target.value = ""; // 入力をリセット
+                    event.target.value = "";
                 }
             }
 
-            // 相手のプロフィール確認用モーダル表示
             function openProfileModal(userData) {
                 document.getElementById("modalAvatar").src = userData.icon || "https://via.placeholder.com/70?text=User";
                 document.getElementById("modalName").textContent = userData.name || "名無し";
