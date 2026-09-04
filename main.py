@@ -1,16 +1,16 @@
 import json
 import time
-import urllib.request 
+import urllib.request
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 app = FastAPI()
 
-DISCORD_WEBHOOK_URL = https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
 
 def send_to_discord(name: str, message: str):
-    if "YOUR_WEBHOOK_ID" in DISCORD_WEBHOOK_URL:
+    if not DISCORD_WEBHOOK_URL or "YOUR_WEBHOOK_URL" in DISCORD_WEBHOOK_URL:
         return
         
     payload = {
@@ -41,11 +41,9 @@ def send_to_discord(name: str, message: str):
     except Exception as e:
         print(f"Discordへの送信に失敗しました: {e}")
 
+
 rooms_db: dict[str, dict] = {}
 room_history: dict[str, list[dict]] = {}
-
-
-# フィードバックを保存するためのリスト（サーバー再起動で消えます）
 feedback_list: list[dict] = []
 
 ROOM_EXPIRATION_SECONDS = 2 * 3600
@@ -110,6 +108,10 @@ class FeedbackCreate(BaseModel):
     name: str
     message: str
 
+@app.get("/")
+async def get_home():
+    return HTMLResponse(html_content)
+
 @app.get("/api/rooms")
 async def get_rooms():
     cleanup_expired_rooms()
@@ -136,13 +138,31 @@ async def submit_feedback(feedback: FeedbackCreate):
         "time": time.time()
     }
     feedback_list.append(feedback_data)
-    
     print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
     
-    # 上で定義した関数を呼び出す
+    # Discord通知を実行
     send_to_discord(feedback.name, feedback.message)
     
     return {"status": "success"}
+
+@app.websocket("/ws/{room_name}")
+async def websocket_endpoint(websocket: WebSocket, room_name: str):
+    await manager.connect(room_name, websocket)
+    update_room_activity(room_name)
+    
+    # 過去ログ送信
+    if room_name in room_history:
+        for msg in room_history[room_name]:
+            await websocket.send_text(json.dumps(msg))
+            
+    try:
+        while True:
+            data_str = await websocket.receive_text()
+            data = json.loads(data_str)
+            update_room_activity(room_name)
+            await manager.broadcast(room_name, data)
+    except WebSocketDisconnect:
+        manager.disconnect(room_name, websocket)
 
 html_content = """
 <!DOCTYPE html>
@@ -394,6 +414,17 @@ html_content = """
                 }
             });
 
+            function showScreen(screenId) {
+                document.querySelectorAll(".screen").forEach(function(s) {
+                    s.classList.add("hidden");
+                });
+                document.getElementById(screenId).classList.remove("hidden");
+            }
+
+            function backToProfile() {
+                showScreen("profileScreen");
+            }
+
             function addCustomHobby() {
                 var input = document.getElementById("customHobbyInput");
                 var val = input.value.trim();
@@ -626,7 +657,6 @@ html_content = """
                 loadRooms();
             }
 
-            // --- 新しく追加したフィードバック送信機能 ---
             async function sendFeedback() {
                 var input = document.getElementById("feedbackInput");
                 var message = input.value.trim();
@@ -644,12 +674,11 @@ html_content = """
                     });
                     
                     alert("フィードバックを送信しました。ご意見ありがとうございます！");
-                    input.value = ""; // 送信後にテキストボックスを空にする
+                    input.value = "";
                 } catch (e) {
                     alert("送信に失敗しました。時間をおいて再度お試しください。");
                 }
             }
-            // ------------------------------------------
 
             function enterRoom(roomName) {
                 document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」";
@@ -762,60 +791,14 @@ html_content = """
                         span.textContent = "#" + tag;
                         modalTags.appendChild(span);
                     });
-                } else {
-                    modalTags.textContent = "趣味タグなし";
                 }
-
                 document.getElementById("profileModal").classList.remove("hidden");
             }
 
             function closeProfileModal() {
                 document.getElementById("profileModal").classList.add("hidden");
             }
-
-            function backToProfile() {
-                showScreen("profileScreen");
-            }
-
-            function showScreen(screenId) {
-                document.getElementById("profileScreen").classList.add("hidden");
-                document.getElementById("lobbyScreen").classList.add("hidden");
-                document.getElementById("chatScreen").classList.add("hidden");
-                document.getElementById(screenId).classList.remove("hidden");
-            }
         </script>
     </body>
 </html>
 """
-
-@app.get("/")
-async def get():
-    return HTMLResponse(content=html_content)
-    
-@app.get("/api/feedback")
-async def get_feedback():
-    return feedback_list
-
-@app.websocket("/ws/{room_name}")
-async def websocket_endpoint(websocket: WebSocket, room_name: str):
-    await manager.connect(room_name, websocket)
-    update_room_activity(room_name)
-    
-    if room_name in room_history:
-        for past_data in room_history[room_name]:
-            await websocket.send_text(json.dumps(past_data))
-
-    system_msg = {"type": "system", "message": "新しいユーザーが参加しました"}
-    await manager.broadcast(room_name, system_msg, save_history=False)
-    
-    try:
-        while True:
-            raw_data = await websocket.receive_text()
-            data = json.loads(raw_data)
-            
-            update_room_activity(room_name)
-            await manager.broadcast(room_name, data)
-    except WebSocketDisconnect:
-        manager.disconnect(room_name, websocket)
-        exit_msg = {"type": "system", "message": "ユーザーが退室しました"}
-        await manager.broadcast(room_name, exit_msg, save_history=False)
