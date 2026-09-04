@@ -751,6 +751,10 @@ html_content = """
 @app.get("/")
 async def get():
     return HTMLResponse(content=html_content)
+    
+@app.get("/api/feedback")
+async def get_feedback():
+    return feedback_list
 
 @app.websocket("/ws/{room_name}")
 async def websocket_endpoint(websocket: WebSocket, room_name: str):
