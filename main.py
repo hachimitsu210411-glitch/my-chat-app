@@ -417,7 +417,8 @@ html_content = """
                 document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」の部屋";
                 document.getElementById("messages").innerHTML = "";
 
-                ws = new WebSocket("ws://" + window.location.host + "/ws/" + encodeURIComponent(roomName));
+                var protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+                ws = new WebSocket(protocol + window.location.host + "/ws/" + encodeURIComponent(roomName));
 
                 ws.onmessage = function(event) {
                     var data = JSON.parse(event.data);
