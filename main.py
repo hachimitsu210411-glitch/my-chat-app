@@ -8,14 +8,14 @@ from pydantic import BaseModel
 app = FastAPI()
 
 # --------------------------------------------------
-# Discord Webhook 設定 & ログ送信関数
+# Discord Webhook 設定 & 汎用通知関数
 # --------------------------------------------------
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545469725491073027/NOUXBcltgH8GY8tfixMGps8vSJtF0rT7EEpEt5Xi8fG_wkfxokR7tq55B-xC7LPNAdAx"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL"
 
 def send_discord_log(title: str, description: str = "", fields: list = None, color: int = 3447003):
     """
     Discordへログメッセージ（埋め込み形式）を送信する汎用関数
-    color: 16進数カラーコードの10進数表現 (例: 青=3447003, 緑=3066993, 赤=15158332, 黄=15105570)
+    color: 青=3447003, 緑=3066993, 赤=15158332, 黄=15105570, 紫=10181046
     """
     if not DISCORD_WEBHOOK_URL or "YOUR_WEBHOOK_URL" in DISCORD_WEBHOOK_URL:
         return
@@ -41,7 +41,7 @@ def send_discord_log(title: str, description: str = "", fields: list = None, col
     try:
         urllib.request.urlopen(req)
     except Exception as e:
-        print(f"Discordへのログ送信に失敗しました: {e}")
+        print(f"Discordへの送信に失敗しました: {e}")
 
 # --------------------------------------------------
 # データベース & 統計管理
@@ -56,6 +56,7 @@ stats_db = {
     "total_messages": 0       # 累計送信メッセージ数
 }
 
+# 接続中のユーザー情報: { websocket: {"name": str, "icon": str, "room": str} }
 active_connections: dict[WebSocket, dict] = {}
 
 ROOM_EXPIRATION_SECONDS = 2 * 3600
@@ -67,7 +68,7 @@ def cleanup_expired_rooms():
         del rooms_db[name]
         if name in room_history:
             del room_history[name]
-        send_discord_log("⏰ ルーム自動削除", f"一定時間非アクティブだったため、ルーム「{name}」を削除しました。", color=15158332)
+        send_discord_log("⏰ ルーム自動削除", f"非アクティブ時間超過により、ルーム「{name}」を削除しました。", color=15158332)
 
 def update_room_activity(room_name: str):
     if room_name in rooms_db:
@@ -96,15 +97,16 @@ class ConnectionManager:
         if websocket in active_connections:
             del active_connections[websocket]
 
-        send_discord_log(
-            "🚪 ユーザー退室/切断",
-            f"ユーザー「{user_name}」がルーム「{room_name}」から切断しました。",
-            color=9807270
-        )
+        if user_name != "ゲスト":
+            send_discord_log(
+                "🚪 ユーザー退室/切断",
+                f"ユーザー「{user_name}」がルーム「{room_name}」から切断しました。",
+                color=9807270
+            )
 
     async def broadcast(self, room_name: str, data: dict, save_history: bool = True):
         json_data = json.dumps(data)
-        if save_history:
+        if save_history and data.get("type") != "system_connect":
             if room_name not in room_history:
                 room_history[room_name] = []
             room_history[room_name].append(data)
@@ -128,6 +130,11 @@ class RoomCreate(BaseModel):
     name: str
     tags: list[str] = []
     icon: str = ""
+
+class ProfileCreate(BaseModel):
+    name: str
+    bio: str = ""
+    hobbies: list[str] = []
 
 class FeedbackCreate(BaseModel):
     name: str
@@ -154,7 +161,6 @@ async def create_room(room: RoomCreate):
         }
         stats_db["created_rooms_count"] += 1
 
-        # Discord ログ送信
         send_discord_log(
             "🏠 ルーム作成",
             f"新しいルームが作成されました。",
@@ -166,6 +172,21 @@ async def create_room(room: RoomCreate):
         )
 
     return await get_rooms()
+
+@app.post("/api/profile")
+async def register_profile(profile: ProfileCreate):
+    stats_db["unique_users"].add(profile.name)
+    send_discord_log(
+        "👤 プロフィール登録・更新",
+        "ユーザーがプロフィール情報を保存しました。",
+        fields=[
+            {"name": "ユーザー名", "value": profile.name, "inline": True},
+            {"name": "一言コメント", "value": profile.bio if profile.bio else "（未設定）", "inline": False},
+            {"name": "趣味・タグ", "value": ", ".join(profile.hobbies) if profile.hobbies else "（未設定）", "inline": False}
+        ],
+        color=3447003
+    )
+    return {"status": "success"}
 
 @app.get("/api/stats")
 async def get_stats():
@@ -199,7 +220,6 @@ async def submit_feedback(feedback: FeedbackCreate):
     }
     feedback_list.append(feedback_data)
     
-    # Discord ログ送信
     send_discord_log(
         "📩 フィードバック受信",
         fields=[
@@ -232,22 +252,15 @@ async def websocket_endpoint(websocket: WebSocket, room_name: str):
                 active_connections[websocket]["icon"] = data.get("icon", "")
                 stats_db["unique_users"].add(sender_name)
 
-            if data.get("type") == "chat":
-                stats_db["total_messages"] += 1
-                msg_content = data.get("message", "")
-                if data.get("image"):
-                    msg_content += " [画像あり]"
-
-                # チャットメッセージ送信ログ
+            if data.get("type") == "system_connect":
                 send_discord_log(
-                    "💬 チャット送信",
-                    fields=[
-                        {"name": "ルーム", "value": room_name, "inline": True},
-                        {"name": "送信者", "value": sender_name, "inline": True},
-                        {"name": "メッセージ", "value": msg_content if msg_content else "（本文なし）", "inline": False}
-                    ],
-                    color=10181046
+                    "📥 ルーム入室",
+                    f"ユーザー「{sender_name}」がルーム「{room_name}」に入室しました。",
+                    color=3447003
                 )
+            elif data.get("type") == "chat":
+                stats_db["total_messages"] += 1
+                # チャット内容の Discord ログ送信処理は削除済み
 
             update_room_activity(room_name)
             await manager.broadcast(room_name, data)
@@ -307,7 +320,7 @@ html_content = """
             .online-user-badge { display: flex; align-items: center; gap: 6px; background: #e6fffa; border: 1px solid #b2f5ea; padding: 4px 8px; border-radius: 20px; font-size: 12px; white-space: nowrap; }
             .online-dot { width: 8px; height: 8px; background-color: #38a169; border-radius: 50%; }
 
-            .room-card { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+            .room-card { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; display: flex; align-items: center; gap: 12px; }
             .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 4px 8px; margin-right: 4px; border-radius: 3px; }
             .recommend-tag { background: #ffe082; font-weight: bold; }
             .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 4px; }
@@ -327,6 +340,7 @@ html_content = """
             .chat-name { font-size: 12px; color: #555; margin-bottom: 4px; cursor: pointer; font-weight: bold; }
             .chat-text { font-size: 14px; color: #222; word-break: break-all; line-height: 1.4; }
             .chat-send-img { max-width: 200px; max-height: 200px; border: 1px solid #ccc; margin-top: 4px; }
+            .system-msg { color: #888; text-align: center; font-size: 12px; margin: 10px 0; font-style: italic; }
 
             .chat-input-bar { padding: 10px 15px; background: #f5f5f5; border-top: 1px solid #ddd; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
             .chat-input-bar input[type="text"] { flex: 1; padding: 8px; border: 1px solid #aaa; border-radius: 4px; outline: none; font-size: 14px; }
@@ -496,7 +510,6 @@ html_content = """
             var newRoomTagsArray = [];
             
             var ws = null;
-            var currentRoom = "";
             var statsInterval = null;
 
             window.onload = function() {
@@ -674,6 +687,19 @@ html_content = """
                 });
 
                 localStorage.setItem("chat_hobbies", JSON.stringify(userHobbies));
+
+                try {
+                    await fetch("/api/profile", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            name: currentUser,
+                            bio: userBio,
+                            hobbies: userHobbies
+                        })
+                    });
+                } catch(e) {}
+
                 document.getElementById("welcomeText").textContent = currentUser + " さんのマイロビー";
                 goHome();
             }
@@ -760,18 +786,24 @@ html_content = """
 
                 room.tags.forEach(function(tag) {
                     var span = document.createElement("span");
-                    span.className = "tag";
-                    if (userHobbies.includes(tag)) {
-                        span.classList.add("recommend-tag");
-                    }
+                    span.className = "tag" + (userHobbies.includes(tag) ? " recommend-tag" : "");
                     span.textContent = "#" + tag;
                     tagsDiv.appendChild(span);
                 });
-
                 infoDiv.appendChild(tagsDiv);
+
                 div.appendChild(infoDiv);
 
-                div.onclick = function() { enterRoom(room.name); };
+                var enterBtn = document.createElement("button");
+                enterBtn.textContent = "入室する";
+                enterBtn.style.padding = "4px 8px";
+                enterBtn.style.background = "#333";
+                enterBtn.style.color = "white";
+                enterBtn.style.border = "none";
+                enterBtn.style.borderRadius = "4px";
+                enterBtn.onclick = function() { enterRoom(room.name); };
+                div.appendChild(enterBtn);
+
                 return div;
             }
 
@@ -785,155 +817,178 @@ html_content = """
                     return;
                 }
 
-                var iconBase64 = "";
-                if (iconInput.files[0]) {
-                    iconBase64 = await fileToBase64(iconInput.files[0]);
+                var roomIconBase64 = "";
+                if (iconInput.files && iconInput.files[0]) {
+                    roomIconBase64 = await fileToBase64(iconInput.files[0]);
                 }
 
-                var response = await fetch("/api/rooms", {
+                var tags = newRoomTagsArray.slice();
+
+                await fetch("/api/rooms", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        name: roomName,
-                        tags: newRoomTagsArray,
-                        icon: iconBase64
-                    })
+                    body: JSON.stringify({ name: roomName, tags: tags, icon: roomIconBase64 })
                 });
 
                 nameInput.value = "";
                 iconInput.value = "";
                 newRoomTagsArray = [];
                 renderRoomTags();
-
+                
                 loadRooms();
+                loadStats();
+            }
+
+            async function sendFeedback() {
+                var input = document.getElementById("feedbackInput");
+                var message = input.value.trim();
+                
+                if (!message) {
+                    alert("メッセージを入力してください！");
+                    return;
+                }
+                
+                try {
+                    await fetch("/api/feedback", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: currentUser || "未登録ユーザー", message: message })
+                    });
+                    
+                    alert("フィードバックを送信しました。ご意見ありがとうございます！");
+                    input.value = "";
+                } catch (e) {
+                    alert("送信に失敗しました。時間をおいて再度お試しください。");
+                }
             }
 
             function enterRoom(roomName) {
-                currentRoom = roomName;
-                document.getElementById("currentRoomTitle").textContent = "部屋: " + roomName;
-                document.getElementById("messages").innerHTML = "";
-                showScreen("chatScreen");
+                if (statsInterval) {
+                    clearInterval(statsInterval);
+                    statsInterval = null;
+                }
 
-                var protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-                ws = new WebSocket(protocol + "//" + window.location.host + "/ws/" + encodeURIComponent(roomName));
+                document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」";
+                document.getElementById("messages").innerHTML = "";
+
+                var protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+                ws = new WebSocket(protocol + window.location.host + "/ws/" + encodeURIComponent(roomName));
+
+                ws.onopen = function() {
+                    ws.send(JSON.stringify({
+                        type: "system_connect",
+                        name: currentUser,
+                        icon: userIconBase64
+                    }));
+                };
 
                 ws.onmessage = function(event) {
                     var data = JSON.parse(event.data);
-                    renderChatMessage(data);
+                    if (data.type !== "system_connect") {
+                        renderMessage(data);
+                    }
                 };
+
+                showScreen("chatScreen");
             }
 
-            function renderChatMessage(data) {
-                var messages = document.getElementById("messages");
-                var li = document.createElement("li");
-                li.className = "chat-item";
+            function renderMessage(data) {
+                var messages = document.getElementById('messages');
+                
+                if (data.type === "system") {
+                    var sysDiv = document.createElement("div");
+                    sysDiv.className = "system-msg";
+                    sysDiv.textContent = "- " + data.message + " -";
+                    messages.appendChild(sysDiv);
+                } else {
+                    var li = document.createElement("li");
+                    li.className = "chat-item";
 
-                var avatar = document.createElement("img");
-                avatar.className = "icon-avatar";
-                avatar.src = data.icon || "https://via.placeholder.com/36?text=User";
-                avatar.onclick = function() { showProfileModal(data); };
-
-                var content = document.createElement("div");
-                content.className = "chat-content";
-
-                var name = document.createElement("div");
-                name.className = "chat-name";
-                name.textContent = data.name || "匿名";
-                name.onclick = function() { showProfileModal(data); };
-
-                content.appendChild(name);
-
-                if (data.message) {
-                    var text = document.createElement("div");
-                    text.className = "chat-text";
-                    text.textContent = data.message;
-                    content.appendChild(text);
-                }
-
-                if (data.image) {
                     var img = document.createElement("img");
-                    img.className = "chat-send-img";
-                    img.src = data.image;
-                    content.appendChild(img);
-                }
+                    img.className = "icon-avatar";
+                    img.src = data.icon || "https://via.placeholder.com/36?text=User";
+                    img.onclick = function() { openProfileModal(data); };
 
-                li.appendChild(avatar);
-                li.appendChild(content);
-                messages.appendChild(li);
+                    var contentDiv = document.createElement("div");
+                    contentDiv.className = "chat-content";
+
+                    var nameDiv = document.createElement("div");
+                    nameDiv.className = "chat-name";
+                    nameDiv.textContent = data.name;
+                    nameDiv.onclick = function() { openProfileModal(data); };
+
+                    contentDiv.appendChild(nameDiv);
+
+                    if (data.msgType === "image") {
+                        var chatImg = document.createElement("img");
+                        chatImg.className = "chat-send-img";
+                        chatImg.src = data.message;
+                        chatImg.onload = scrollToBottom;
+                        contentDiv.appendChild(chatImg);
+                    } else {
+                        var textDiv = document.createElement("div");
+                        textDiv.className = "chat-text";
+                        textDiv.textContent = data.message;
+                        contentDiv.appendChild(textDiv);
+                    }
+
+                    li.appendChild(img);
+                    li.appendChild(contentDiv);
+                    messages.appendChild(li);
+                }
                 scrollToBottom();
             }
 
             function sendMessage() {
                 var input = document.getElementById("messageText");
-                var text = input.value.trim();
-                if (text && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
+                if (input.value.trim() !== "" && ws) {
+                    var payload = {
                         type: "chat",
+                        msgType: "text",
                         name: currentUser,
                         bio: userBio,
                         icon: userIconBase64,
-                        hobbies: userHobbies,
-                        message: text
-                    }));
-                    input.value = "";
+                        tags: userHobbies,
+                        message: input.value
+                    };
+                    ws.send(JSON.stringify(payload));
+                    input.value = '';
                 }
             }
 
             async function sendImageMessage(event) {
                 var file = event.target.files[0];
-                if (file && ws && ws.readyState === WebSocket.OPEN) {
+                if (file && ws) {
                     var imgBase64 = await fileToBase64(file);
-                    ws.send(JSON.stringify({
+                    var payload = {
                         type: "chat",
+                        msgType: "image",
                         name: currentUser,
                         bio: userBio,
                         icon: userIconBase64,
-                        hobbies: userHobbies,
-                        image: imgBase64
-                    }));
+                        tags: userHobbies,
+                        message: imgBase64
+                    };
+                    ws.send(JSON.stringify(payload));
                     event.target.value = "";
                 }
             }
 
-            async function sendFeedback() {
-                var textarea = document.getElementById("feedbackInput");
-                var message = textarea.value.trim();
-                if (!message) {
-                    alert("内容を入力してください");
-                    return;
-                }
+            function openProfileModal(userData) {
+                document.getElementById("modalAvatar").src = userData.icon || "https://via.placeholder.com/70?text=User";
+                document.getElementById("modalName").textContent = userData.name || "名無し";
+                document.getElementById("modalBio").textContent = userData.bio ? "「 " + userData.bio + " 」" : "（一言コメントなし）";
 
-                await fetch("/api/feedback", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        name: currentUser,
-                        message: message
-                    })
-                });
-
-                alert("ご意見ありがとうございます！運営に送信しました。");
-                textarea.value = "";
-            }
-
-            function showProfileModal(data) {
-                document.getElementById("modalAvatar").src = data.icon || "https://via.placeholder.com/70?text=User";
-                document.getElementById("modalName").textContent = data.name || "匿名";
-                document.getElementById("modalBio").textContent = data.bio || "（一言コメントはありません）";
-
-                var tagsDiv = document.getElementById("modalTags");
-                tagsDiv.innerHTML = "";
-                if (data.hobbies && data.hobbies.length > 0) {
-                    data.hobbies.forEach(function(h) {
+                var modalTags = document.getElementById("modalTags");
+                modalTags.innerHTML = "";
+                if (userData.tags && userData.tags.length > 0) {
+                    userData.tags.forEach(function(tag) {
                         var span = document.createElement("span");
                         span.className = "tag";
-                        span.textContent = "#" + h;
-                        tagsDiv.appendChild(span);
+                        span.textContent = "#" + tag;
+                        modalTags.appendChild(span);
                     });
-                } else {
-                    tagsDiv.textContent = "タグなし";
                 }
-
                 document.getElementById("profileModal").classList.remove("hidden");
             }
 
