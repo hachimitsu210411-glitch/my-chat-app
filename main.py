@@ -103,7 +103,7 @@ html_content = """
                 overflow: hidden;
             }
 
-            /* 全体コンテナ（PCでは幅600pxに制限、スマホでは全画面） */
+            /* 全体コンテナ */
             .app-container {
                 width: 100%;
                 max-width: 600px;
@@ -126,13 +126,12 @@ html_content = """
                 flex-shrink: 0;
             }
             .home-btn {
-                background: #4CAF50;
-                color: white;
-                border: none;
-                padding: 6px 12px;
+                background: #f0f0f0;
+                color: #333;
+                border: 1px solid #ccc;
+                padding: 4px 10px;
                 border-radius: 4px;
                 cursor: pointer;
-                font-weight: bold;
             }
 
             /* 各画面共通 */
@@ -150,82 +149,82 @@ html_content = """
                 margin: 8px 0;
                 padding: 10px;
                 border: 1px solid #ccc;
-                border-radius: 8px;
-                background: white;
+                border-radius: 4px;
+                background: #fafafa;
                 display: flex;
                 align-items: center;
                 gap: 12px;
             }
             .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 2px 6px; margin-right: 4px; border-radius: 3px; }
             .recommend-tag { background: #ffe082; font-weight: bold; }
-            .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 8px; }
+            .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 4px; }
             
-            .icon-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #ddd; cursor: pointer; flex-shrink: 0; }
-            .room-icon-img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: #eee; flex-shrink: 0; }
-            .preview-img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; display: block; margin-top: 5px; }
+            .icon-avatar { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; background: #ddd; cursor: pointer; flex-shrink: 0; }
+            .room-icon-img { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: #eee; flex-shrink: 0; }
+            .preview-img { width: 60px; height: 60px; border-radius: 4px; object-fit: cover; display: block; margin-top: 5px; }
 
-            /* チャット専用UI (画面最下部固定レイアウト) */
+            /* チャット専用UI */
             #chatScreen {
                 padding: 0;
                 overflow: hidden;
                 display: flex;
                 flex-direction: column;
+                background: #ffffff;
             }
             .chat-header {
                 padding: 10px 15px;
-                background: #ffffff;
-                border-bottom: 1px solid #eee;
+                background: #f9f9f9;
+                border-bottom: 1px solid #ddd;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 flex-shrink: 0;
             }
-            .chat-header h2 { font-size: 16px; margin: 0; }
-            .exit-btn { background: #ff4d4d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+            .chat-header h2 { font-size: 16px; margin: 0; color: #333; }
+            .exit-btn { background: #fff; color: #d9534f; border: 1px solid #d9534f; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
 
             .chat-messages {
                 flex: 1;
                 overflow-y: auto;
                 padding: 15px;
-                background-color: #7494c0;
                 list-style: none;
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
+                gap: 15px;
             }
 
-            .chat-item { display: flex; align-items: flex-start; gap: 10px; }
-            .chat-content { display: flex; flex-direction: column; }
-            .chat-name { font-size: 12px; color: #ffffff; margin-bottom: 2px; cursor: pointer; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
-            .chat-text { background: white; padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; max-width: 280px; word-break: break-all; font-size: 14px; }
-            .chat-send-img { max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid #ddd; margin-top: 4px; }
-            .system-msg { color: #ffffff; text-align: center; font-size: 12px; margin: 8px 0; background: rgba(0, 0, 0, 0.2); padding: 4px 12px; border-radius: 12px; align-self: center; }
+            /* シンプルなチャットアイテムデザイン */
+            .chat-item { display: flex; align-items: flex-start; gap: 10px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+            .chat-content { display: flex; flex-direction: column; width: 100%; }
+            .chat-name { font-size: 12px; color: #555; margin-bottom: 4px; cursor: pointer; font-weight: bold; }
+            .chat-text { font-size: 14px; color: #222; word-break: break-all; line-height: 1.4; }
+            .chat-send-img { max-width: 200px; max-height: 200px; border: 1px solid #ccc; margin-top: 4px; }
+            .system-msg { color: #888; text-align: center; font-size: 12px; margin: 10px 0; font-style: italic; }
 
             /* 下部固定入力バー */
             .chat-input-bar {
-                padding: 10px;
-                background: #ffffff;
+                padding: 10px 15px;
+                background: #f5f5f5;
                 border-top: 1px solid #ddd;
                 display: flex;
-                gap: 6px;
+                gap: 8px;
                 align-items: center;
                 flex-shrink: 0;
             }
             .chat-input-bar input[type="text"] {
                 flex: 1;
-                padding: 10px 14px;
-                border: 1px solid #ccc;
-                border-radius: 20px;
+                padding: 8px;
+                border: 1px solid #aaa;
+                border-radius: 4px;
                 outline: none;
                 font-size: 14px;
             }
             .chat-input-bar button {
-                padding: 8px 14px;
-                background-color: #06c755;
+                padding: 8px 12px;
+                background-color: #333;
                 color: white;
                 border: none;
-                border-radius: 16px;
-                font-weight: bold;
+                border-radius: 4px;
                 cursor: pointer;
                 font-size: 13px;
                 white-space: nowrap;
@@ -234,9 +233,9 @@ html_content = """
 
             /* モーダル */
             .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 20px; border-radius: 10px; width: 280px; text-align: center; position: relative; }
-            .modal-avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; margin-bottom: 10px; }
-            .modal-bio { background: #f0f0f0; padding: 8px; border-radius: 6px; font-size: 13px; margin: 10px 0; color: #444; }
+            .modal-content { background: white; padding: 20px; border-radius: 6px; width: 280px; text-align: center; position: relative; }
+            .modal-avatar { width: 70px; height: 70px; border-radius: 4px; object-fit: cover; margin-bottom: 10px; border: 1px solid #ddd; }
+            .modal-bio { background: #f9f9f9; padding: 10px; border: 1px solid #eee; font-size: 13px; margin: 10px 0; color: #444; }
 
             input[type="text"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
             button { cursor: pointer; }
@@ -247,7 +246,7 @@ html_content = """
         <div class="app-container">
             <div class="navbar">
                 <span>学校趣味チャット</span>
-                <button class="home-btn" onclick="goHome()">🏠 ホーム</button>
+                <button class="home-btn" onclick="goHome()">ホームに戻る</button>
             </div>
 
             <!-- 1. プロフィール設定画面 -->
@@ -276,7 +275,7 @@ html_content = """
                 <p>自由に追加する趣味・タグ（カンマ区切り）:</p>
                 <input type="text" id="customHobbyInput" placeholder="例: イラスト, 競プロ" style="width: 100%; margin-bottom: 15px;" />
                 
-                <button onclick="saveProfile()" style="padding: 10px; background: #06c755; color: white; border: none; border-radius: 6px; font-weight: bold;">保存してロビーへ</button>
+                <button onclick="saveProfile()" style="padding: 10px; background: #333; color: white; border: none; border-radius: 4px;">保存してロビーへ</button>
             </div>
 
             <!-- 2. ロビー画面 -->
@@ -284,13 +283,13 @@ html_content = """
                 <h2 id="welcomeText">ようこそ！</h2>
                 
                 <div style="color: #d97706; margin-top: 10px;">
-                    <h3>★ あなたにおすすめのルーム:</h3>
+                    <h3>★ おすすめのルーム:</h3>
                     <div id="recommendedRoomList">該当するルームがありません</div>
                 </div>
 
-                <hr style="margin: 15px 0;">
+                <hr style="margin: 15px 0; border: 0; border-top: 1px solid #ddd;">
 
-                <h3>すべてのトークルーム一覧:</h3>
+                <h3>すべてのルーム一覧:</h3>
                 <div id="allRoomList">まだ部屋がありません。</div>
 
                 <div class="create-box">
@@ -305,19 +304,19 @@ html_content = """
                 <button onclick="backToProfile()" style="padding: 8px; border: 1px solid #ccc; background: #fff; border-radius: 4px;">プロフィール変更</button>
             </div>
 
-            <!-- 3. チャット画面（LINE風レイアウト） -->
+            <!-- 3. チャット画面 -->
             <div id="chatScreen" class="screen hidden">
                 <div class="chat-header">
                     <h2 id="currentRoomTitle">チャットルーム</h2>
-                    <button class="exit-btn" onclick="goHome()">退室</button>
+                    <button class="exit-btn" onclick="goHome()">退室する</button>
                 </div>
 
-                <!-- メッセージ表示領域（自動スクロール） -->
+                <!-- メッセージ表示領域 -->
                 <ul id="messages" class="chat-messages"></ul>
 
                 <!-- 画面最下部に固定される入力バー -->
                 <div class="chat-input-bar">
-                    <button class="btn-img-select" onclick="document.getElementById('chatImageInput').click()">📷</button>
+                    <button class="btn-img-select" onclick="document.getElementById('chatImageInput').click()">画像</button>
                     <input type="file" id="chatImageInput" accept="image/*" class="hidden" onchange="sendImageMessage(event)" />
                     <input type="text" id="messageText" placeholder="メッセージを入力..." autocomplete="off" onkeydown="handleKeyDown(event)" />
                     <button onclick="sendMessage()">送信</button>
@@ -331,7 +330,7 @@ html_content = """
                     <h3 id="modalName" style="margin: 5px 0;"></h3>
                     <div id="modalBio" class="modal-bio"></div>
                     <div id="modalTags" style="margin-bottom: 15px;"></div>
-                    <button onclick="closeProfileModal()" style="padding: 6px 16px;">閉じる</button>
+                    <button onclick="closeProfileModal()" style="padding: 6px 16px; background: #333; color: white; border: none; border-radius: 4px;">閉じる</button>
                 </div>
             </div>
         </div>
@@ -380,7 +379,6 @@ html_content = """
                 }
             };
 
-            // ページを閉じる時にソケットを切断
             window.addEventListener("beforeunload", function() {
                 if (ws) {
                     ws.close();
@@ -494,7 +492,7 @@ html_content = """
                 });
 
                 if (!hasRecommend) {
-                    recommendedList.textContent = "あなたのお気に入りジャンルに合う部屋がまだありません。";
+                    recommendedList.textContent = "おすすめの部屋がまだありません。";
                 }
             }
 
@@ -528,9 +526,9 @@ html_content = """
                 div.appendChild(infoDiv);
 
                 var enterBtn = document.createElement("button");
-                enterBtn.textContent = "入室";
-                enterBtn.style.padding = "6px 12px";
-                enterBtn.style.background = "#06c755";
+                enterBtn.textContent = "入室する";
+                enterBtn.style.padding = "4px 8px";
+                enterBtn.style.background = "#333";
                 enterBtn.style.color = "white";
                 enterBtn.style.border = "none";
                 enterBtn.style.borderRadius = "4px";
@@ -593,7 +591,7 @@ html_content = """
                 if (data.type === "system") {
                     var sysDiv = document.createElement("div");
                     sysDiv.className = "system-msg";
-                    sysDiv.textContent = data.message;
+                    sysDiv.textContent = "- " + data.message + " -";
                     messages.appendChild(sysDiv);
                 } else {
                     var li = document.createElement("li");
@@ -601,7 +599,7 @@ html_content = """
 
                     var img = document.createElement("img");
                     img.className = "icon-avatar";
-                    img.src = data.icon || "https://via.placeholder.com/40?text=User";
+                    img.src = data.icon || "https://via.placeholder.com/36?text=User";
                     img.onclick = function() { openProfileModal(data); };
 
                     var contentDiv = document.createElement("div");
