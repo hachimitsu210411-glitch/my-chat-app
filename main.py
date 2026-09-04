@@ -7,7 +7,10 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
+# --------------------------------------------------
+# Discord Webhook 設定
+# --------------------------------------------------
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL"
 
 def send_to_discord(name: str, message: str):
     if not DISCORD_WEBHOOK_URL or "YOUR_WEBHOOK_URL" in DISCORD_WEBHOOK_URL:
@@ -41,10 +44,22 @@ def send_to_discord(name: str, message: str):
     except Exception as e:
         print(f"Discordへの送信に失敗しました: {e}")
 
-
+# --------------------------------------------------
+# データベース & 統計管理
+# --------------------------------------------------
 rooms_db: dict[str, dict] = {}
 room_history: dict[str, list[dict]] = {}
 feedback_list: list[dict] = []
+
+# 統計情報
+stats_db = {
+    "unique_users": set(),     # 累計訪問者（ユーザー名）
+    "created_rooms_count": 0, # 累計作成ルーム数
+    "total_messages": 0       # 累計送信メッセージ数
+}
+
+# 接続中のユーザー情報: { websocket: {"name": str, "icon": str, "room": str} }
+active_connections: dict[WebSocket, dict] = {}
 
 ROOM_EXPIRATION_SECONDS = 2 * 3600
 
@@ -69,6 +84,7 @@ class ConnectionManager:
         if room_name not in self.rooms:
             self.rooms[room_name] = []
         self.rooms[room_name].append(websocket)
+        active_connections[websocket] = {"name": "ゲスト", "icon": "", "room": room_name}
 
     def disconnect(self, room_name: str, websocket: WebSocket):
         if room_name in self.rooms:
@@ -76,6 +92,8 @@ class ConnectionManager:
                 self.rooms[room_name].remove(websocket)
             if not self.rooms[room_name]:
                 del self.rooms[room_name]
+        if websocket in active_connections:
+            del active_connections[websocket]
 
     async def broadcast(self, room_name: str, data: dict, save_history: bool = True):
         json_data = json.dumps(data)
@@ -127,9 +145,33 @@ async def create_room(room: RoomCreate):
             "icon": room.icon,
             "last_activity": time.time()
         }
+        stats_db["created_rooms_count"] += 1
     return await get_rooms()
 
-# フィードバックを受け取るエンドポイント
+# 統計・オンラインユーザー取得API
+@app.get("/api/stats")
+async def get_stats():
+    online_users = []
+    seen = set()
+    
+    for info in active_connections.values():
+        name = info.get("name")
+        if name and name != "ゲスト" and name not in seen:
+            seen.add(name)
+            online_users.append({
+                "name": name,
+                "icon": info.get("icon", ""),
+                "room": info.get("room", "")
+            })
+
+    return {
+        "online_count": len(online_users),
+        "online_users": online_users,
+        "total_visitors": len(stats_db["unique_users"]),
+        "total_rooms_created": stats_db["created_rooms_count"],
+        "total_messages": stats_db["total_messages"]
+    }
+
 @app.post("/api/feedback")
 async def submit_feedback(feedback: FeedbackCreate):
     feedback_data = {
@@ -140,9 +182,7 @@ async def submit_feedback(feedback: FeedbackCreate):
     feedback_list.append(feedback_data)
     print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
     
-    # Discord通知を実行
     send_to_discord(feedback.name, feedback.message)
-    
     return {"status": "success"}
 
 @app.websocket("/ws/{room_name}")
@@ -150,7 +190,6 @@ async def websocket_endpoint(websocket: WebSocket, room_name: str):
     await manager.connect(room_name, websocket)
     update_room_activity(room_name)
     
-    # 過去ログ送信
     if room_name in room_history:
         for msg in room_history[room_name]:
             await websocket.send_text(json.dumps(msg))
@@ -159,6 +198,16 @@ async def websocket_endpoint(websocket: WebSocket, room_name: str):
         while True:
             data_str = await websocket.receive_text()
             data = json.loads(data_str)
+            
+            # オンライン情報と統計の更新
+            if "name" in data and data["name"]:
+                active_connections[websocket]["name"] = data["name"]
+                active_connections[websocket]["icon"] = data.get("icon", "")
+                stats_db["unique_users"].add(data["name"])
+
+            if data.get("type") == "chat":
+                stats_db["total_messages"] += 1
+
             update_room_activity(room_name)
             await manager.broadcast(room_name, data)
     except WebSocketDisconnect:
@@ -206,6 +255,16 @@ html_content = """
 
             .screen { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; }
             .hidden { display: none !important; }
+
+            .stats-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px; margin-bottom: 15px; }
+            .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; margin-top: 8px; }
+            .stats-item { background: #fff; padding: 8px 4px; border-radius: 4px; border: 1px solid #dee2e6; }
+            .stats-value { font-size: 16px; font-weight: bold; color: #2b6cb0; }
+            .stats-label { font-size: 10px; color: #666; margin-top: 2px; }
+
+            .online-list { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
+            .online-user-badge { display: flex; align-items: center; gap: 6px; background: #e6fffa; border: 1px solid #b2f5ea; padding: 4px 8px; border-radius: 20px; font-size: 12px; white-space: nowrap; }
+            .online-dot { width: 8px; height: 8px; background-color: #38a169; border-radius: 50%; }
 
             .room-card { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; display: flex; align-items: center; gap: 12px; }
             .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 4px 8px; margin-right: 4px; border-radius: 3px; }
@@ -293,6 +352,30 @@ html_content = """
             <div id="lobbyScreen" class="screen hidden">
                 <h2 id="welcomeText">ようこそ！</h2>
                 
+                <!-- 統計情報カード -->
+                <div class="stats-card" style="margin-top: 12px;">
+                    <div style="font-weight: bold; font-size: 13px; color: #444;">📊 利用統計</div>
+                    <div class="stats-grid">
+                        <div class="stats-item">
+                            <div class="stats-value" id="statOnline">0</div>
+                            <div class="stats-label">オンライン</div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-value" id="statVisitors">0</div>
+                            <div class="stats-label">累計ユーザー</div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-value" id="statMessages">0</div>
+                            <div class="stats-label">送信メッセージ</div>
+                        </div>
+                    </div>
+
+                    <div style="font-weight: bold; font-size: 12px; color: #444; margin-top: 10px;">🟢 現在接続中:</div>
+                    <div class="online-list" id="onlineUserList">
+                        <span style="font-size: 11px; color: #888;">誰も接続していません</span>
+                    </div>
+                </div>
+
                 <div style="color: #d97706; margin-top: 10px;">
                     <h3>★ おすすめのルーム:</h3>
                     <div id="recommendedRoomList">該当するルームがありません</div>
@@ -373,6 +456,7 @@ html_content = """
             var newRoomTagsArray = [];
             
             var ws = null;
+            var statsInterval = null;
 
             window.onload = function() {
                 var savedName = localStorage.getItem("chat_username");
@@ -422,6 +506,7 @@ html_content = """
             }
 
             function backToProfile() {
+                if (statsInterval) clearInterval(statsInterval);
                 showScreen("profileScreen");
             }
 
@@ -516,6 +601,10 @@ html_content = """
                 if (currentUser) {
                     showScreen("lobbyScreen");
                     loadRooms();
+                    loadStats();
+                    if (!statsInterval) {
+                        statsInterval = setInterval(loadStats, 5000); // 5秒ごとに統計を更新
+                    }
                 } else {
                     showScreen("profileScreen");
                 }
@@ -546,6 +635,31 @@ html_content = """
                 localStorage.setItem("chat_hobbies", JSON.stringify(userHobbies));
                 document.getElementById("welcomeText").textContent = currentUser + " さんのマイロビー";
                 goHome();
+            }
+
+            async function loadStats() {
+                try {
+                    var response = await fetch("/api/stats");
+                    var data = await response.json();
+                    
+                    document.getElementById("statOnline").textContent = data.online_count;
+                    document.getElementById("statVisitors").textContent = data.total_visitors;
+                    document.getElementById("statMessages").textContent = data.total_messages;
+
+                    var onlineList = document.getElementById("onlineUserList");
+                    onlineList.innerHTML = "";
+
+                    if (data.online_users.length === 0) {
+                        onlineList.innerHTML = '<span style="font-size: 11px; color: #888;">誰も接続していません</span>';
+                    } else {
+                        data.online_users.forEach(function(u) {
+                            var badge = document.createElement("div");
+                            badge.className = "online-user-badge";
+                            badge.innerHTML = '<div class="online-dot"></div>' + u.name + (u.room ? ' (' + u.room + ')' : '');
+                            onlineList.appendChild(badge);
+                        });
+                    }
+                } catch(e) {}
             }
 
             async function loadRooms() {
@@ -655,6 +769,7 @@ html_content = """
                 renderRoomTags();
                 
                 loadRooms();
+                loadStats();
             }
 
             async function sendFeedback() {
@@ -681,15 +796,31 @@ html_content = """
             }
 
             function enterRoom(roomName) {
+                if (statsInterval) {
+                    clearInterval(statsInterval);
+                    statsInterval = null;
+                }
+
                 document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」";
                 document.getElementById("messages").innerHTML = "";
 
                 var protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
                 ws = new WebSocket(protocol + window.location.host + "/ws/" + encodeURIComponent(roomName));
 
+                ws.onopen = function() {
+                    // 接続開始時にプロフィール情報を一度サーバーに送信
+                    ws.send(JSON.stringify({
+                        type: "system_connect",
+                        name: currentUser,
+                        icon: userIconBase64
+                    }));
+                };
+
                 ws.onmessage = function(event) {
                     var data = JSON.parse(event.data);
-                    renderMessage(data);
+                    if (data.type !== "system_connect") {
+                        renderMessage(data);
+                    }
                 };
 
                 showScreen("chatScreen");
