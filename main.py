@@ -9,6 +9,9 @@ app = FastAPI()
 rooms_db: dict[str, dict] = {}
 room_history: dict[str, list[dict]] = {}
 
+# フィードバックを保存するためのリスト（サーバー再起動で消えます）
+feedback_list: list[dict] = []
+
 ROOM_EXPIRATION_SECONDS = 2 * 3600
 
 def cleanup_expired_rooms():
@@ -57,7 +60,6 @@ class ConnectionManager:
                 except Exception:
                     disconnected_sockets.append(connection)
             
-            # 接続が切れていたソケットを安全に削除
             for dead_socket in disconnected_sockets:
                 self.disconnect(room_name, dead_socket)
 
@@ -67,6 +69,10 @@ class RoomCreate(BaseModel):
     name: str
     tags: list[str] = []
     icon: str = ""
+
+class FeedbackCreate(BaseModel):
+    name: str
+    message: str
 
 @app.get("/api/rooms")
 async def get_rooms():
@@ -84,6 +90,19 @@ async def create_room(room: RoomCreate):
             "last_activity": time.time()
         }
     return await get_rooms()
+
+# フィードバックを受け取るエンドポイント
+@app.post("/api/feedback")
+async def submit_feedback(feedback: FeedbackCreate):
+    feedback_data = {
+        "name": feedback.name,
+        "message": feedback.message,
+        "time": time.time()
+    }
+    feedback_list.append(feedback_data)
+    # コンソール画面にも表示させる
+    print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
+    return {"status": "success"}
 
 html_content = """
 <!DOCTYPE html>
@@ -103,7 +122,6 @@ html_content = """
                 overflow: hidden;
             }
 
-            /* 全体コンテナ */
             .app-container {
                 width: 100%;
                 max-width: 600px;
@@ -115,7 +133,6 @@ html_content = """
                 position: relative;
             }
 
-            /* ナビバー */
             .navbar {
                 background: #333;
                 color: white;
@@ -125,36 +142,12 @@ html_content = """
                 align-items: center;
                 flex-shrink: 0;
             }
-            .home-btn {
-                background: #f0f0f0;
-                color: #333;
-                border: 1px solid #ccc;
-                padding: 4px 10px;
-                border-radius: 4px;
-                cursor: pointer;
-            }
+            .home-btn { background: #f0f0f0; color: #333; border: 1px solid #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
 
-            /* 各画面共通 */
-            .screen {
-                flex: 1;
-                overflow-y: auto;
-                padding: 15px;
-                display: flex;
-                flex-direction: column;
-            }
+            .screen { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; }
             .hidden { display: none !important; }
 
-            /* カード・要素スタイル */
-            .room-card {
-                margin: 8px 0;
-                padding: 10px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                background: #fafafa;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }
+            .room-card { margin: 8px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; display: flex; align-items: center; gap: 12px; }
             .tag { display: inline-block; background: #e0e0e0; font-size: 11px; padding: 4px 8px; margin-right: 4px; border-radius: 3px; }
             .recommend-tag { background: #ffe082; font-weight: bold; }
             .create-box { margin-top: 15px; padding: 15px; border: 1px solid #aaa; background: #fdfdfd; border-radius: 4px; }
@@ -163,37 +156,12 @@ html_content = """
             .room-icon-img { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: #eee; flex-shrink: 0; }
             .preview-img { width: 60px; height: 60px; border-radius: 4px; object-fit: cover; display: block; margin-top: 5px; }
 
-            /* チャット専用UI */
-            #chatScreen {
-                padding: 0;
-                overflow: hidden;
-                display: flex;
-                flex-direction: column;
-                background: #ffffff;
-            }
-            .chat-header {
-                padding: 10px 15px;
-                background: #f9f9f9;
-                border-bottom: 1px solid #ddd;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                flex-shrink: 0;
-            }
+            #chatScreen { padding: 0; overflow: hidden; display: flex; flex-direction: column; background: #ffffff; }
+            .chat-header { padding: 10px 15px; background: #f9f9f9; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
             .chat-header h2 { font-size: 16px; margin: 0; color: #333; }
             .exit-btn { background: #fff; color: #d9534f; border: 1px solid #d9534f; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
 
-            .chat-messages {
-                flex: 1;
-                overflow-y: auto;
-                padding: 15px;
-                list-style: none;
-                display: flex;
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            /* シンプルなチャットアイテムデザイン */
+            .chat-messages { flex: 1; overflow-y: auto; padding: 15px; list-style: none; display: flex; flex-direction: column; gap: 15px; }
             .chat-item { display: flex; align-items: flex-start; gap: 10px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
             .chat-content { display: flex; flex-direction: column; width: 100%; }
             .chat-name { font-size: 12px; color: #555; margin-bottom: 4px; cursor: pointer; font-weight: bold; }
@@ -201,37 +169,11 @@ html_content = """
             .chat-send-img { max-width: 200px; max-height: 200px; border: 1px solid #ccc; margin-top: 4px; }
             .system-msg { color: #888; text-align: center; font-size: 12px; margin: 10px 0; font-style: italic; }
 
-            /* 下部固定入力バー */
-            .chat-input-bar {
-                padding: 10px 15px;
-                background: #f5f5f5;
-                border-top: 1px solid #ddd;
-                display: flex;
-                gap: 8px;
-                align-items: center;
-                flex-shrink: 0;
-            }
-            .chat-input-bar input[type="text"] {
-                flex: 1;
-                padding: 8px;
-                border: 1px solid #aaa;
-                border-radius: 4px;
-                outline: none;
-                font-size: 14px;
-            }
-            .chat-input-bar button {
-                padding: 8px 12px;
-                background-color: #333;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 13px;
-                white-space: nowrap;
-            }
+            .chat-input-bar { padding: 10px 15px; background: #f5f5f5; border-top: 1px solid #ddd; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+            .chat-input-bar input[type="text"] { flex: 1; padding: 8px; border: 1px solid #aaa; border-radius: 4px; outline: none; font-size: 14px; }
+            .chat-input-bar button { padding: 8px 12px; background-color: #333; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap; }
             .btn-img-select { background-color: #666 !important; }
 
-            /* モーダル */
             .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
             .modal-content { background: white; padding: 20px; border-radius: 6px; width: 280px; text-align: center; position: relative; }
             .modal-avatar { width: 70px; height: 70px; border-radius: 4px; object-fit: cover; margin-bottom: 10px; border: 1px solid #ddd; }
@@ -240,9 +182,10 @@ html_content = """
             input[type="text"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
             button { cursor: pointer; }
             
-            /* 追加されたタグリスト用 */
             .tag-remove { color: #d9534f; cursor: pointer; margin-left: 6px; font-weight: bold; font-size: 12px; }
             .tag-list-container { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 15px; }
+
+            textarea { padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; font-family: inherit; }
         </style>
     </head>
     <body>
@@ -320,6 +263,15 @@ html_content = """
 
                 <br>
                 <button onclick="backToProfile()" style="padding: 8px; border: 1px solid #ccc; background: #fff; border-radius: 4px;">プロフィール変更</button>
+
+                <!-- フィードバック機能 -->
+                <hr style="margin: 30px 0 15px 0; border: 0; border-top: 1px solid #ddd;">
+                <div class="create-box" style="background: #f4f6f8; border-color: #d0d7de; margin-bottom: 30px;">
+                    <h4 style="color: #333;">意見・要望を送る</h4>
+                    <p style="margin-top: 5px; font-size: 12px; color: #666;">「こんな機能が欲しい！」「ここが使いにくい」など教えてください。</p>
+                    <textarea id="feedbackInput" rows="3" placeholder="ここに入力..." style="width: 100%; margin: 8px 0;"></textarea>
+                    <button onclick="sendFeedback()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px;">運営に送信する</button>
+                </div>
             </div>
 
             <!-- 3. チャット画面 -->
@@ -329,10 +281,8 @@ html_content = """
                     <button class="exit-btn" onclick="goHome()">退室する</button>
                 </div>
 
-                <!-- メッセージ表示領域 -->
                 <ul id="messages" class="chat-messages"></ul>
 
-                <!-- 画面最下部に固定される入力バー -->
                 <div class="chat-input-bar">
                     <button class="btn-img-select" onclick="document.getElementById('chatImageInput').click()">画像</button>
                     <input type="file" id="chatImageInput" accept="image/*" class="hidden" onchange="sendImageMessage(event)" />
@@ -359,7 +309,6 @@ html_content = """
             var userIconBase64 = "";
             var userHobbies = [];
             
-            // 自由入力タグ管理用の配列
             var customHobbiesArray = [];
             var newRoomTagsArray = [];
             
@@ -393,7 +342,6 @@ html_content = """
                                 found = true;
                             }
                         });
-                        // チェックボックスに無いものはカスタムタグとして追加
                         if (!found) customHobbiesArray.push(hobby);
                     });
                     renderCustomHobbies();
@@ -406,7 +354,6 @@ html_content = """
                 }
             });
 
-            // ------------------- プロフィール用のタグ追加機能 -------------------
             function addCustomHobby() {
                 var input = document.getElementById("customHobbyInput");
                 var val = input.value.trim();
@@ -433,7 +380,6 @@ html_content = """
                 });
             }
 
-            // ------------------- ルーム作成用のタグ追加機能 -------------------
             function addRoomTag() {
                 var input = document.getElementById("newRoomTagInput");
                 var val = input.value.trim();
@@ -459,8 +405,6 @@ html_content = """
                     list.appendChild(span);
                 });
             }
-
-            // ---------------------------------------------------------------
 
             function scrollToBottom() {
                 var messagesDiv = document.getElementById("messages");
@@ -520,12 +464,10 @@ html_content = """
                 localStorage.setItem("chat_user_icon", userIconBase64);
 
                 userHobbies = [];
-                // チェックボックスのタグを追加
                 document.querySelectorAll('.hobby-check:checked').forEach(function(cb) {
                     userHobbies.push(cb.value);
                 });
 
-                // カスタムタグを追加
                 customHobbiesArray.forEach(function(tag) {
                     if (!userHobbies.includes(tag)) userHobbies.push(tag);
                 });
@@ -616,7 +558,6 @@ html_content = """
             async function createNewRoom() {
                 var nameInput = document.getElementById("newRoomNameInput");
                 var iconInput = document.getElementById("newRoomIconInput");
-
                 var roomName = nameInput.value.trim();
 
                 if (!roomName) {
@@ -629,7 +570,6 @@ html_content = """
                     roomIconBase64 = await fileToBase64(iconInput.files[0]);
                 }
 
-                // 配列のコピーを作成
                 var tags = newRoomTagsArray.slice();
 
                 await fetch("/api/rooms", {
@@ -638,7 +578,6 @@ html_content = """
                     body: JSON.stringify({ name: roomName, tags: tags, icon: roomIconBase64 })
                 });
 
-                // 入力状態をリセット
                 nameInput.value = "";
                 iconInput.value = "";
                 newRoomTagsArray = [];
@@ -646,6 +585,31 @@ html_content = """
                 
                 loadRooms();
             }
+
+            // --- 新しく追加したフィードバック送信機能 ---
+            async function sendFeedback() {
+                var input = document.getElementById("feedbackInput");
+                var message = input.value.trim();
+                
+                if (!message) {
+                    alert("メッセージを入力してください！");
+                    return;
+                }
+                
+                try {
+                    await fetch("/api/feedback", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: currentUser || "未登録ユーザー", message: message })
+                    });
+                    
+                    alert("フィードバックを送信しました。ご意見ありがとうございます！");
+                    input.value = ""; // 送信後にテキストボックスを空にする
+                } catch (e) {
+                    alert("送信に失敗しました。時間をおいて再度お試しください。");
+                }
+            }
+            // ------------------------------------------
 
             function enterRoom(roomName) {
                 document.getElementById("currentRoomTitle").textContent = "「" + roomName + "」";
