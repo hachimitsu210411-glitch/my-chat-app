@@ -136,8 +136,11 @@ async def submit_feedback(feedback: FeedbackCreate):
         "time": time.time()
     }
     feedback_list.append(feedback_data)
-
-send_to_discord(feedback.name, feedback.message)
+    
+    print(f"\n[フィードバック受信] 送信者: {feedback.name}\n内容: {feedback.message}\n")
+    
+    # 上で定義した関数を呼び出す
+    send_to_discord(feedback.name, feedback.message)
     
     return {"status": "success"}
 
