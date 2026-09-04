@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+DISCORD_WEBHOOK_URL = https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
 
 def send_to_discord(name: str, message: str):
     if "YOUR_WEBHOOK_ID" in DISCORD_WEBHOOK_URL:
