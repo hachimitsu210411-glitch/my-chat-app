@@ -1,6 +1,6 @@
 import json
 import time
-import urllib.request  # 標準ライブラリを追加
+import urllib.request 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
