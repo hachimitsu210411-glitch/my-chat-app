@@ -10,7 +10,7 @@ app = FastAPI()
 # --------------------------------------------------
 # Discord Webhook 設定 & 汎用通知関数
 # --------------------------------------------------
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545450385454399560/Ha0dqy-k7fgTNOsUZ1yz9vZexXkJ6pJvKtTujaW8vF40Y35FqjpgtDL6mO-J4LMOrLs8"
 
 def send_discord_log(title: str, description: str = "", fields: list = None, color: int = 3447003):
     """
